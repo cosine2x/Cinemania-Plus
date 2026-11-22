@@ -2,50 +2,13 @@
     "api": 1,
     "game": "TmForever",
     "products": {
-        "Cinemania": {
-            "name": "Cinemania",
-            "author": "mediocre-q",
+        "CinemaniaPlus": {
+            "name": "Cinemania Plus",
+            "author": "cosine2x, mediocre-q",
             "type": "modification",
-            "description": "Modern video export for TrackMania United Forever 2.12.0.",
-            "homepage": "https://github.com/mediocre-q/Cinemania",
-            "versions": {
-                "0.1.0": {
-                    "executable": "Cinemania.dll",
-                    "dependencies": [
-                        {
-                            "id": "TmForever",
-                            "version": "2.12.0"
-                        }
-                    ],
-                    "download_link": "https://github.com/mediocre-q/Cinemania/releases/download/v0.1.0/Cinemania-0.1.0.zip",
-                    "hash_sha256": "ddf8d5a3dc0059339e498fc015b716ea8cb0b9576f4d9c52aca6c71131c05f30",
-                    "changelog": "Cinemania 0.1.0."
-                },
-                "0.2.0": {
-                    "executable": "Cinemania.dll",
-                    "dependencies": [
-                        {
-                            "id": "TmForever",
-                            "version": "2.12.0"
-                        }
-                    ],
-                    "download_link": "https://github.com/mediocre-q/Cinemania/releases/download/v0.2.0/Cinemania-0.2.0.zip",
-                    "hash_sha256": "67dfbac65f252cb7b0698a7a43a79e5b7688f2f44e3ac76da76e965cd73ea116",
-                    "changelog": "Cinemania 0.2.0."
-                },
-                "1.0.0": {
-                    "executable": "Cinemania.dll",
-                    "dependencies": [
-                        {
-                            "id": "TmForever",
-                            "version": "2.12.0"
-                        }
-                    ],
-                    "download_link": "https://github.com/mediocre-q/Cinemania/releases/download/v1.0.0/Cinemania-1.0.0.zip",
-                    "hash_sha256": "7af6a952cc564cd9f13f5e266ba11e451ccb9b4c42f6af52ed7dcdc9e346ed91",
-                    "changelog": "Cinemania 1.0.0."
-                }
-            }
+            "description": "Cinemania with optional NVIDIA GPU (NVENC) video encoding for TrackMania United Forever 2.12.0. Do not enable together with Cinemania.",
+            "homepage": "https://github.com/cosine2x/Cinemania-Plus",
+            "versions": {}
         }
     }
 }
