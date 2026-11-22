@@ -1,0 +1,77 @@
+name: Publish Cinemania Plus release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, for example 1.1.0 (must match CMakeLists.txt)'
+        required: true
+        default: '1.1.0'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cinemania-plus-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Build Release binaries
+        shell: pwsh
+        run: ./scripts/build.ps1
+
+      - name: Download FFmpeg with NVENC (BtbN GPL build)
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-9.0.zip'
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-extract
+          $exe = Get-ChildItem ffmpeg-extract -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          $license = Get-ChildItem ffmpeg-extract -Recurse -Filter LICENSE.txt | Select-Object -First 1
+          if (-not $exe -or -not $license) { throw 'ffmpeg.exe or LICENSE.txt not found in the download' }
+          Copy-Item $exe.FullName ffmpeg.exe
+          Copy-Item $license.FullName ffmpeg-LICENSE.txt
+
+      - name: Package release and update the feed
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          python ./scripts/plus_release.py --version $env:VERSION --repo $env:REPO `
+            --dll build/x86/Cinemania.dll --worker build/x64/CinemaniaWorker.exe `
+            --ffmpeg ffmpeg.exe --ffmpeg-license ffmpeg-LICENSE.txt `
+            --output-dir out --feed modloader/index.json
+          if ($LASTEXITCODE -ne 0) { throw 'packaging failed' }
+          $hash = (Get-FileHash ffmpeg.exe -Algorithm SHA256).Hash.ToLower()
+          $banner = (& ./ffmpeg.exe -hide_banner -version 2>&1 | Out-String)
+          "ffmpeg.exe SHA-256: $hash`n`n$banner" | Set-Content -Path out/BUILD-INFO.txt -Encoding utf8
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          $notes = "Cinemania Plus $env:VERSION. Based on Cinemania by mediocre-q (https://github.com/mediocre-q/Cinemania). Adds NVIDIA GPU (NVENC) encoding with automatic CPU fallback. Bundled FFmpeg is the unmodified GPL build from https://github.com/BtbN/FFmpeg-Builds; exact version and hash are in BUILD-INFO.txt."
+          gh release create "v$env:VERSION" --title "Cinemania Plus $env:VERSION" --notes $notes "out/Cinemania-Plus-$env:VERSION.zip" out/BUILD-INFO.txt
+          if ($LASTEXITCODE -ne 0) { throw 'release creation failed' }
+
+      - name: Commit the updated TMLoader feed
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add modloader/index.json
+          git commit -m "Add Cinemania Plus $env:VERSION to the TMLoader feed"
+          git push origin HEAD:master
