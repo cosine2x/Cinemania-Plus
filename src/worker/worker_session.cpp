@@ -115,7 +115,11 @@ std::vector<std::wstring> preflight_arguments(const std::wstring& path,
 std::vector<std::wstring>
 video_arguments(const SessionFormat& format, const std::wstring& path, bool nvenc)
 {
-    // CRF 0 is lossless for x264 but "automatic" for NVENC, so keep NVENC at 1 or above
+    // TESTING BIT: NVENC's -cq is not on the same scale as x264's CRF:
+    // at an equal number NVENC produces a file about 2.4x larger !
+    // CRF 0 is lossless for x264 but "automatic" for NVENC, so NVENC always stays at 1 or above
+    // But keep this here so I can always come back to it if I wanna change it
+    const std::uint32_t nvenc_cq = (std::min)(format.crf + 8u, 51u);
     const std::vector<std::wstring> encoder =
         nvenc ? std::vector<std::wstring>{L"-c:v",
                                           L"h264_nvenc",
@@ -126,7 +130,7 @@ video_arguments(const SessionFormat& format, const std::wstring& path, bool nven
                                           L"-rc",
                                           L"vbr",
                                           L"-cq",
-                                          std::to_wstring((std::max)(format.crf, 1u)),
+                                          std::to_wstring(nvenc_cq),
                                           L"-b:v",
                                           L"0",
                                           L"-profile:v",
