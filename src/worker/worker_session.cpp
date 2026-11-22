@@ -17,7 +17,6 @@ namespace cinemania::worker
 {
 namespace
 {
-// Leave CPU capacity for the game while allowing a small parallel conversion pool.
 constexpr std::uint32_t kMaxVideoFilterThreads = 4;
 constexpr wchar_t kAudioBitrate[] = L"512k";
 constexpr wchar_t kVideoFilter[] =
@@ -34,7 +33,38 @@ NativeError failure(DWORD code, const char* message)
     return {code, message};
 }
 
-std::vector<std::wstring> preflight_arguments(const std::wstring& path, bool audio_expected)
+enum class EncoderMode
+{
+    automatic,
+    cpu,
+    gpu
+};
+
+// CINEMANIA_ENCODER=cpu forces x264, =gpu forces NVENC (it fails if it's unavailable),
+// anything else (or unset) tries NVENC first and falls back to x264
+EncoderMode requested_encoder()
+{
+    wchar_t value[16]{};
+    const DWORD length = GetEnvironmentVariableW(L"CINEMANIA_ENCODER", value, 16);
+    if (length == 0 || length >= 16)
+    {
+        return EncoderMode::automatic;
+    }
+    const std::wstring text(value, length);
+    if (_wcsicmp(text.c_str(), L"cpu") == 0)
+    {
+        return EncoderMode::cpu;
+    }
+    if (_wcsicmp(text.c_str(), L"gpu") == 0 || _wcsicmp(text.c_str(), L"nvenc") == 0)
+    {
+        return EncoderMode::gpu;
+    }
+    return EncoderMode::automatic;
+}
+
+std::vector<std::wstring> preflight_arguments(const std::wstring& path,
+                                              bool audio_expected,
+                                              bool nvenc)
 {
     std::vector<std::wstring> arguments = {L"-hide_banner",
                                            L"-loglevel",
@@ -46,26 +76,33 @@ std::vector<std::wstring> preflight_arguments(const std::wstring& path, bool aud
                                            L"-f",
                                            L"lavfi",
                                            L"-i",
-                                           L"color=size=2x2:rate=1"};
+                                           // NVENC rejects frames below its hardware minimum size
+                                           nvenc ? L"color=size=256x256:rate=1"
+                                                 : L"color=size=2x2:rate=1"};
     if (audio_expected)
     {
         arguments.insert(arguments.end(), {L"-f", L"lavfi", L"-i", L"anullsrc=r=48000:cl=stereo"});
     }
-    arguments.insert(arguments.end(),
-                     {L"-frames:v",
-                      L"1",
-                      L"-t",
-                      L"1",
-                      L"-c:v",
-                      L"libx264",
-                      L"-threads:v",
-                      L"1",
-                      L"-preset",
-                      L"veryfast",
-                      L"-crf",
-                      L"18",
-                      L"-pix_fmt",
-                      L"yuv420p"});
+    arguments.insert(arguments.end(), {L"-frames:v", L"1", L"-t", L"1"});
+    if (nvenc)
+    {
+        arguments.insert(arguments.end(),
+                         {L"-c:v", L"h264_nvenc", L"-preset", L"p5", L"-pix_fmt", L"yuv420p"});
+    }
+    else
+    {
+        arguments.insert(arguments.end(),
+                         {L"-c:v",
+                          L"libx264",
+                          L"-threads:v",
+                          L"1",
+                          L"-preset",
+                          L"veryfast",
+                          L"-crf",
+                          L"18",
+                          L"-pix_fmt",
+                          L"yuv420p"});
+    }
     if (audio_expected)
     {
         arguments.insert(arguments.end(),
@@ -75,9 +112,34 @@ std::vector<std::wstring> preflight_arguments(const std::wstring& path, bool aud
     return arguments;
 }
 
-std::vector<std::wstring> video_arguments(const SessionFormat& format, const std::wstring& path)
+std::vector<std::wstring>
+video_arguments(const SessionFormat& format, const std::wstring& path, bool nvenc)
 {
-    return {L"-hide_banner",
+    // CRF 0 is lossless for x264 but "automatic" for NVENC, so keep NVENC at 1 or above
+    const std::vector<std::wstring> encoder =
+        nvenc ? std::vector<std::wstring>{L"-c:v",
+                                          L"h264_nvenc",
+                                          L"-preset",
+                                          L"p5",
+                                          L"-tune",
+                                          L"hq",
+                                          L"-rc",
+                                          L"vbr",
+                                          L"-cq",
+                                          std::to_wstring((std::max)(format.crf, 1u)),
+                                          L"-b:v",
+                                          L"0",
+                                          L"-profile:v",
+                                          L"high"}
+              : std::vector<std::wstring>{L"-c:v",
+                                          L"libx264",
+                                          L"-preset",
+                                          L"veryfast",
+                                          L"-crf",
+                                          std::to_wstring(format.crf),
+                                          L"-threads",
+                                          std::to_wstring(format.threads)};
+    std::vector<std::wstring> arguments = {L"-hide_banner",
             L"-loglevel",
             L"warning",
             L"-nostdin",
@@ -95,16 +157,10 @@ std::vector<std::wstring> video_arguments(const SessionFormat& format, const std
             L"-i",
             L"pipe:0",
             L"-vf",
-            kVideoFilter,
-            L"-c:v",
-            L"libx264",
-            L"-preset",
-            L"veryfast",
-            L"-crf",
-            std::to_wstring(format.crf),
-            L"-threads",
-            std::to_wstring(format.threads),
-            L"-color_range",
+            kVideoFilter};
+    arguments.insert(arguments.end(), encoder.begin(), encoder.end());
+    arguments.insert(arguments.end(),
+           {L"-color_range",
             L"tv",
             L"-colorspace",
             L"bt709",
@@ -116,7 +172,8 @@ std::vector<std::wstring> video_arguments(const SessionFormat& format, const std
             L"pipe:2",
             L"-f",
             L"mp4",
-            path};
+            path});
+    return arguments;
 }
 
 std::vector<std::wstring> mux_arguments(const SessionFormat& format,
@@ -276,6 +333,7 @@ private:
     std::uint64_t status_sequence_ = 0;
     protocol::Stage stage_ = protocol::Stage::protocol;
     bool video_input_open_ = false;
+    bool use_nvenc_ = false;
 };
 
 NativeError Session::send_status(protocol::MessageType type,
@@ -347,20 +405,41 @@ NativeError Session::begin()
     {
         return failure(code, "cannot create preflight file");
     }
-    auto error =
-        run_finished_process(options_.ffmpeg,
-                             preflight_arguments(preflight_path, input_.format().audio_expected),
-                             stop_);
-    if (error)
+    const EncoderMode mode = requested_encoder();
+    use_nvenc_ = false;
+    NativeError error;
+    if (mode != EncoderMode::cpu)
     {
-        return error;
+        error = run_finished_process(
+            options_.ffmpeg,
+            preflight_arguments(preflight_path, input_.format().audio_expected, true),
+            stop_);
+        if (!error)
+        {
+            use_nvenc_ = true;
+        }
+        else if (mode == EncoderMode::gpu || stop_.stopped())
+        {
+            return error; // GPU was explicitly requested, so report why it failed
+        }
+    }
+    if (!use_nvenc_)
+    {
+        error = run_finished_process(
+            options_.ffmpeg,
+            preflight_arguments(preflight_path, input_.format().audio_expected, false),
+            stop_);
+        if (error)
+        {
+            return error;
+        }
     }
     code = output_.make_temporary(video_path_);
     if (code != ERROR_SUCCESS)
     {
         return failure(code, "cannot create video file");
     }
-    error = video_.start(options_.ffmpeg, video_arguments(input_.format(), video_path_), stop_);
+    error = video_.start(options_.ffmpeg, video_arguments(input_.format(), video_path_, use_nvenc_), stop_);
     if (error)
     {
         return error;
