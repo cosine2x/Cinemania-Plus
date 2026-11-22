@@ -8,7 +8,20 @@
             "type": "modification",
             "description": "Cinemania with optional NVIDIA GPU (NVENC) video encoding for TrackMania United Forever 2.12.0. Do not enable together with Cinemania.",
             "homepage": "https://github.com/cosine2x/Cinemania-Plus",
-            "versions": {}
+            "versions": {
+                "1.1.0": {
+                    "executable": "Cinemania.dll",
+                    "dependencies": [
+                        {
+                            "id": "TmForever",
+                            "version": "2.12.0"
+                        }
+                    ],
+                    "download_link": "https://github.com/cosine2x/Cinemania-Plus/releases/download/v1.1.0/Cinemania-Plus-1.1.0.zip",
+                    "hash_sha256": "a774035a82a85fa7ecea246dee591ecb749280260f1565fbbb1c1d9fe56c379e",
+                    "changelog": "Cinemania Plus 1.1.0: adds NVIDIA GPU (NVENC) encoding with automatic CPU fallback."
+                }
+            }
         }
     }
 }
